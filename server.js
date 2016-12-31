@@ -1,19 +1,11 @@
-require('dotenv').config();
 var express = require('express');
 var https = require('https');
 var mongo = require('mongodb').MongoClient;
 var app = express();
 
-/*
- https://www.googleapis.com/customsearch/v1element?
- key=AIzaSyCVAXiUzRYsML1Pv6RwSG1gunmMikTzQqY&rsz=filtered_cse&num=20&hl=en&
- prettyPrint=false&source=gcsc&gss=.com&sig=0c3990ce7a056ed50667fe0c3873c9b6&searchtype=image&
- cx=009771908109930493698:nmxgafxmozu&q=cats&googlehost=www.google.com
- */
-
-
-// https://www.googleapis.com/customsearch/v1element?key=AIzaSyCVAXiUzRYsML1Pv6RwSG1gunmMikTzQqY&num=10&start=0&
-// hl=en&searchtype=image&cx=009771908109930493698:nmxgafxmozu&q=cats
+if (process.env.NODE_ENV !== "production") {
+  require('dotenv').config();
+}
 
 var dbUrl = process.env.DATABASE_URL || "mongodb://localhost:27017/yasser";
 
@@ -38,8 +30,12 @@ app.get('/api/imagesearch/:searchTerm', function (req, res) {
       sendResponse(JSON.parse(apiResponse), res);
       insertInDB(searchTerm);
     });
+    apiRes.on('error', function(err){
+      console.log("Error in receiving response.");
+      console.log(err);
+    });
   }).on('error', function (err) {
-    console.log("Got an error.");
+    console.log("Http GET Error.");
     console.log(err);
   });
 });
@@ -55,6 +51,7 @@ function sendLatestSearchItems(res) {
             when: doc._id.getTimestamp()
           }
         }));
+      db.close();
     });
   });
 }
@@ -65,8 +62,6 @@ function insertInDB(searchTerm) {
     customSearch.insert({searchTerm: searchTerm}, function (err, data) {
       if (err) {
         console.log("Error in inserting.");
-      } else {
-        console.log(searchTerm + " inserted.");
       }
       db.close();
     });
@@ -84,6 +79,9 @@ function sendResponse(googleSearchResult, response) {
           thumbnail: foundResult.tbUrl
         };
       }));
+  } else {
+    console.log("Error in getting results");
+    response.status(500).send('Something broke!');
   }
 }
 
