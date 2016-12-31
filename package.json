@@ -1,0 +1,23 @@
+{
+  "name": "image-search-abstraction",
+  "version": "1.0.0",
+  "description": "FCC Backend Project for searching images",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "FCC",
+    "node",
+    "mongodb",
+    "image_search",
+    "javascript"
+  ],
+  "author": "Yasser Hussain",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^2.0.0",
+    "express": "^4.14.0",
+    "mongodb": "^2.2.16"
+  }
+}
