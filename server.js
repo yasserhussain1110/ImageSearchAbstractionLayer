@@ -1,103 +1,81 @@
-var express = require('express');
-var https = require('https');
-var mongo = require('mongodb').MongoClient;
-var app = express();
+const express = require('express');
+const axios = require('axios');
+const MongoClient = require('mongodb').MongoClient;
+const app = express();
 
 if (process.env.NODE_ENV !== "production") {
   require('dotenv').config();
 }
 
-var dbUrl = process.env.DATABASE_URL || "mongodb://localhost:27017/yasser";
+const {BING_SUBSCRIPTION_KEY, DATABASE_URL} = process.env;
 
 app.use(express.static('public'));
 
-app.get('/api/latest/imagesearch', function (req, res) {
+app.get('/api/imagesearch/:searchTerm', (req, res) => {
+  const searchTerm = req.params.searchTerm;
+  const offset = req.query.offset || 0;
+  const bingSearchURL = createBingSearchURL(searchTerm, offset);
+  console.log(bingSearchURL);
+  axios.get(bingSearchURL, {
+    headers: {
+      'Ocp-Apim-Subscription-Key': BING_SUBSCRIPTION_KEY
+    }
+  }).then(result => {
+    const sanitizedResponse = sanitizeSearchResponse(result.data.value);
+    res.json(sanitizedResponse);
+    insertSearchTermInDB(searchTerm);
+  }).catch(e => {
+    console.log(e);
+    res.status(400).send();
+  });
+});
+
+app.get('/api/latest/imagesearch', (req, res) => {
   sendLatestSearchItems(res);
 });
 
-app.get('/api/imagesearch/:searchTerm', function (req, res) {
-  var searchTerm = req.params.searchTerm;
-  var offset = req.query.offset || "";
-  var customSearchUrl = makeCustomSearchUrl(searchTerm, offset);
+const createBingSearchURL = (searchTerm, offset) =>
+  `https://api.cognitive.microsoft.com/bing/v7.0/images/search?q=${searchTerm}&count=20&offset=${offset}`;
 
-  https.get(customSearchUrl, function (apiRes) {
-    var apiResponse = "";
-    apiRes.setEncoding('utf8');
-    apiRes.on('data', function (chunk) {
-      apiResponse += chunk;
-    });
-    apiRes.on('end', function () {
-      sendResponse(JSON.parse(apiResponse), res);
-      insertInDB(searchTerm);
-    });
-    apiRes.on('error', function(err){
-      console.log("Error in receiving response.");
-      console.log(err);
-    });
-  }).on('error', function (err) {
-    console.log("Http GET Error.");
-    console.log(err);
+const sanitizeSearchResponse = results =>
+  results.filter(r => {
+    return r.thumbnailUrl && r.contentUrl && r.hostPageUrl;
+  }).map(r => ({
+    url: r.contentUrl,
+    context: r.hostPageUrl,
+    thumbnail: r.thumbnailUrl
+  }));
+
+const insertSearchTermInDB = searchTerm => {
+  MongoClient.connect(DATABASE_URL).then(db => {
+    db.collection('customsearch').insertOne({searchTerm})
+      .catch(e => {
+        console.log(e);
+      })
+      .then(() => {
+        db.close();
+      });
+  }).catch(e => {
+    console.log(e);
   });
-});
+};
 
-function sendLatestSearchItems(res) {
-  mongo.connect(dbUrl, function (err, db) {
-    const customSearch = db.collection("custom_search");
-    customSearch.find().sort({_id: -1}).limit(10).toArray(function (err, docs) {
-      res.json(
-        docs.map(function (doc) {
-          return {
-            searchTerm: doc.searchTerm,
-            when: doc._id.getTimestamp()
-          }
-        }));
-      db.close();
-    });
-  });
-}
-
-function insertInDB(searchTerm) {
-  mongo.connect(dbUrl, function (err, db) {
-    const customSearch = db.collection("custom_search");
-    customSearch.insert({searchTerm: searchTerm}, function (err, data) {
-      if (err) {
-        console.log("Error in inserting.");
-      }
-      db.close();
-    });
-  });
-}
-
-function sendResponse(googleSearchResult, response) {
-  if (googleSearchResult && googleSearchResult.results) {
-    response.json(
-      googleSearchResult.results.map(function (foundResult) {
-        return {
-          url: foundResult.url,
-          context: foundResult.originalContextUrl,
-          snippet: foundResult.contentNoFormatting,
-          thumbnail: foundResult.tbUrl
-        };
+const sendLatestSearchItems = res => {
+  MongoClient.connect(DATABASE_URL).then(db => {
+    db.collection('customsearch').find().sort({_id: -1}).limit(10).toArray().then(searchTermDocs => {
+      const sanitizedData = searchTermDocs.map(doc => ({
+        searchTerm: doc.searchTerm,
+        when: doc._id.getTimestamp()
       }));
-  } else {
-    console.log("Error in getting results");
-    response.status(500).send('Something broke!');
-  }
-}
-
-function adjustOffset(offset) {
-  // offset should always be a multiple of 10
-  return Math.floor(offset / 10) * 10;
-}
-
-
-function makeCustomSearchUrl(searchTerm, offset) {
-  return "https://www.googleapis.com/customsearch/v1element?prettyPrint=false&hl=en&searchtype=image&num=10&"
-    + "key=" + process.env.key + "&"
-    + "cx=" + process.env.cx + "&"
-    + (offset ? "start=" + adjustOffset(offset) + "&" : "")
-    + "q=" + searchTerm;
-}
+      res.json(sanitizedData);
+    }).catch(e => {
+      console.log(e);
+    }).then(() => {
+      db.close();
+    });
+  }).catch(e => {
+    console.log(e);
+  });
+};
 
 app.listen(process.env.PORT || 8080);
-

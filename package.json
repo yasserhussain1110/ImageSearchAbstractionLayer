@@ -16,6 +16,7 @@
   "author": "Yasser Hussain",
   "license": "MIT",
   "dependencies": {
+    "axios": "^0.17.1",
     "dotenv": "^2.0.0",
     "express": "^4.14.0",
     "mongodb": "^2.2.16"
